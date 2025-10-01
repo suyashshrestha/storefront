@@ -1,13 +1,32 @@
 import type { AppProps } from 'next/app';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Toaster } from 'react-hot-toast';
 import Layout from '@/components/Layout/Layout';
 import '@/styles/globals.css';
 
-// Simplified version without React Query for testing
+// Create a client with React Query v5 compatible configuration
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 1000 * 60 * 5, // 5 minutes
+      gcTime: 1000 * 60 * 10, // 10 minutes (was cacheTime in v4)
+      retry: 1,
+      refetchOnWindowFocus: false,
+      refetchOnReconnect: false,
+      refetchOnMount: true,
+    },
+    mutations: {
+      retry: 1,
+    },
+  },
+});
+
 function MyApp({ Component, pageProps }: AppProps) {
   return (
-    <Layout>
-      <Component {...pageProps} />
+    <QueryClientProvider client={queryClient}>
+      <Layout>
+        <Component {...pageProps} />
+      </Layout>
       <Toaster
         position="top-right"
         toastOptions={{
@@ -32,7 +51,7 @@ function MyApp({ Component, pageProps }: AppProps) {
           },
         }}
       />
-    </Layout>
+    </QueryClientProvider>
   );
 }
 
