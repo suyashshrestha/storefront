@@ -24,7 +24,18 @@ grep -r "import.*from.*@heroicons" --include="*.tsx" .
 grep -r "React.FC.*=" --include="*.tsx" .
 ```
 
-#### 3. **Verify Next.js Imports**
+#### 3. **Check React Query Compatibility**
+```bash
+# Check for deprecated React Query properties
+grep -r "cacheTime" --include="*.tsx" --include="*.ts" .
+grep -r "useErrorBoundary" --include="*.tsx" --include="*.ts" .
+```
+
+**React Query v5 Changes:**
+- ✅ `cacheTime` → `gcTime`
+- ✅ `useErrorBoundary` → `throwOnError`
+
+#### 4. **Verify Next.js Imports**
 ```bash
 # Check Next.js specific imports are correct
 grep -r "from 'next" --include="*.tsx" .
@@ -74,13 +85,25 @@ import { SearchIcon } from '@heroicons/react/24/outline';
 import { MagnifyingGlassIcon } from '@heroicons/react/24/outline';
 ```
 
-#### ❌ **MenuIcon Error**
+#### ❌ **React Query cacheTime Error**
 ```typescript
 // Wrong
-import { MenuIcon } from '@heroicons/react/24/outline';
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      cacheTime: 1000 * 60 * 10, // Old property
+    },
+  },
+});
 
-// Fixed  
-import { Bars3Icon } from '@heroicons/react/24/outline';
+// Fixed
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      gcTime: 1000 * 60 * 10, // New property in v5
+    },
+  },
+});
 ```
 
 ### Automated Pre-Commit Hook (Optional)
@@ -103,6 +126,7 @@ echo "✅ Pre-commit checks passed!"
 
 Before pushing to GitHub:
 - [ ] All Heroicons imports use valid v2 names
+- [ ] React Query uses v5 compatible properties (`gcTime` not `cacheTime`)
 - [ ] TypeScript compilation passes (`tsc --noEmit`)
 - [ ] Next.js build succeeds (`npm run build`)
 - [ ] No ESLint errors (`npm run lint`)
