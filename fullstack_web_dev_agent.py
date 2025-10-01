@@ -1,0 +1,862 @@
+import os
+import subprocess
+import json
+from typing import Dict, List, Optional, Tuple
+from strands import Agent, tool
+from strands.models import BedrockModel
+from strands_tools import python_repl, editor, shell, journal
+
+# Constants - you may need to create constants.py or adjust this
+SESSION_ID = "fullstack-web-dev-session"
+
+# Show rich UI for tools in CLI
+os.environ["STRANDS_TOOL_CONSOLE_MODE"] = "enabled"
+
+# Git configuration storage
+GIT_CONFIG_FILE = os.path.expanduser("~/.git_agent_config.json")
+
+def load_git_config() -> Dict:
+    """Load Git configuration from file"""
+    if os.path.exists(GIT_CONFIG_FILE):
+        try:
+            with open(GIT_CONFIG_FILE, 'r') as f:
+                return json.load(f)
+        except:
+            pass
+    return {}
+
+def save_git_config(config: Dict) -> None:
+    """Save Git configuration to file"""
+    try:
+        with open(GIT_CONFIG_FILE, 'w') as f:
+            json.dump(config, f, indent=2)
+    except Exception as e:
+        print(f"Warning: Could not save Git config: {e}")
+
+def get_git_user_info() -> Tuple[str, str]:
+    """Get Git user information, prompting if not configured"""
+    config = load_git_config()
+    
+    username = config.get('username')
+    email = config.get('email')
+    
+    # Check if already configured in Git
+    if not username:
+        try:
+            result = subprocess.run(['git', 'config', '--global', 'user.name'], 
+                                  capture_output=True, text=True)
+            if result.returncode == 0 and result.stdout.strip():
+                username = result.stdout.strip()
+        except:
+            pass
+    
+    if not email:
+        try:
+            result = subprocess.run(['git', 'config', '--global', 'user.email'], 
+                                  capture_output=True, text=True)
+            if result.returncode == 0 and result.stdout.strip():
+                email = result.stdout.strip()
+        except:
+            pass
+    
+    # Prompt for missing information
+    if not username:
+        print("\n🔧 Git Configuration Setup")
+        print("=" * 50)
+        username = input("📝 Enter your Git username: ").strip()
+    
+    if not email:
+        if not username:  # Don't print header again
+            print("\n🔧 Git Configuration Setup")
+            print("=" * 50)
+        email = input("📧 Enter your Git email: ").strip()
+    
+    # Save configuration
+    config.update({'username': username, 'email': email})
+    save_git_config(config)
+    
+    return username, email
+
+def run_git_command(command: List[str], cwd: str = None) -> Tuple[bool, str, str]:
+    """Run a git command and return success, stdout, stderr"""
+    try:
+        result = subprocess.run(
+            command,
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+            timeout=30
+        )
+        return result.returncode == 0, result.stdout, result.stderr
+    except subprocess.TimeoutExpired:
+        return False, "", "Command timed out"
+    except Exception as e:
+        return False, "", str(e)
+
+@tool
+def git_operations(
+    operation: str,
+    message: str = "",
+    branch_name: str = "",
+    remote_url: str = "",
+    file_path: str = "",
+    target_branch: str = "main",
+    interactive: bool = True
+) -> str:
+    """
+    Perform Git operations with interactive user prompts for missing information.
+    
+    Args:
+        operation: Git operation to perform (init, add, commit, push, pull, clone, branch, merge, status, log, diff, remote)
+        message: Commit message (for commit operations)
+        branch_name: Branch name (for branch operations)
+        remote_url: Remote repository URL (for clone/remote operations)
+        file_path: Specific file path (for add operations)
+        target_branch: Target branch for merge operations
+        interactive: Whether to prompt user for missing information
+    
+    Returns:
+        Result of the Git operation
+    """
+    
+    current_dir = os.getcwd()
+    
+    try:
+        if operation == "init":
+            print("\n🚀 Initializing Git Repository")
+            print("=" * 40)
+            
+            # Check if already a git repo
+            if os.path.exists(os.path.join(current_dir, '.git')):
+                return "✅ Git repository already initialized in current directory"
+            
+            success, stdout, stderr = run_git_command(['git', 'init'])
+            if success:
+                # Configure user info
+                username, email = get_git_user_info()
+                
+                # Set local git config
+                run_git_command(['git', 'config', 'user.name', username])
+                run_git_command(['git', 'config', 'user.email', email])
+                
+                return f"✅ Git repository initialized successfully!\n📝 Configured with user: {username} <{email}>"
+            else:
+                return f"❌ Failed to initialize Git repository: {stderr}"
+        
+        elif operation == "status":
+            print("\n📊 Checking Git Status")
+            print("=" * 30)
+            
+            success, stdout, stderr = run_git_command(['git', 'status', '--porcelain'])
+            if success:
+                if stdout.strip():
+                    # Get detailed status
+                    success2, detailed_status, _ = run_git_command(['git', 'status'])
+                    return f"📋 Repository Status:\n{detailed_status}"
+                else:
+                    return "✅ Working directory clean - no changes to commit"
+            else:
+                return f"❌ Not a git repository or error occurred: {stderr}"
+        
+        elif operation == "add":
+            print("\n➕ Adding Files to Git")
+            print("=" * 30)
+            
+            if not file_path and interactive:
+                print("📁 Available files to add:")
+                success, status_output, _ = run_git_command(['git', 'status', '--porcelain'])
+                if success and status_output:
+                    files = []
+                    for line in status_output.strip().split('\n'):
+                        if line.strip():
+                            file_name = line[3:].strip()
+                            files.append(file_name)
+                            print(f"   • {file_name}")
+                    
+                    if files:
+                        print("\n💡 Options:")
+                        print("   • Type filename to add specific file")
+                        print("   • Type '.' to add all files")
+                        print("   • Type 'cancel' to cancel")
+                        file_path = input("\n📝 Enter file(s) to add: ").strip()
+                        
+                        if file_path.lower() == 'cancel':
+                            return "❌ Add operation cancelled"
+                else:
+                    return "✅ No files to add - working directory clean"
+            
+            if not file_path:
+                file_path = "."
+            
+            success, stdout, stderr = run_git_command(['git', 'add', file_path])
+            if success:
+                return f"✅ Added '{file_path}' to staging area"
+            else:
+                return f"❌ Failed to add files: {stderr}"
+        
+        elif operation == "commit":
+            print("\n💾 Committing Changes")
+            print("=" * 30)
+            
+            # Check if there are staged changes
+            success, status_output, _ = run_git_command(['git', 'status', '--porcelain', '--cached'])
+            if success and not status_output.strip():
+                return "❌ No staged changes to commit. Use 'git add' first."
+            
+            if not message and interactive:
+                print("📝 Enter commit message:")
+                message = input("💬 Message: ").strip()
+                
+                if not message:
+                    return "❌ Commit cancelled - no message provided"
+            
+            if not message:
+                message = "Auto-commit from FullStack Web Dev Agent"
+            
+            success, stdout, stderr = run_git_command(['git', 'commit', '-m', message])
+            if success:
+                return f"✅ Changes committed successfully!\n📝 Message: {message}"
+            else:
+                return f"❌ Failed to commit: {stderr}"
+        
+        elif operation == "push":
+            print("\n⬆️ Pushing to Remote Repository")
+            print("=" * 40)
+            
+            # Check if remote exists
+            success, remotes, _ = run_git_command(['git', 'remote'])
+            if success and not remotes.strip():
+                if interactive:
+                    print("❌ No remote repository configured.")
+                    print("💡 Would you like to add a remote repository?")
+                    add_remote = input("📝 Add remote? (y/n): ").strip().lower()
+                    
+                    if add_remote == 'y':
+                        if not remote_url:
+                            remote_url = input("🌐 Enter remote repository URL: ").strip()
+                        
+                        if remote_url:
+                            success, _, stderr = run_git_command(['git', 'remote', 'add', 'origin', remote_url])
+                            if not success:
+                                return f"❌ Failed to add remote: {stderr}"
+                        else:
+                            return "❌ Push cancelled - no remote URL provided"
+                    else:
+                        return "❌ Push cancelled - no remote repository"
+                else:
+                    return "❌ No remote repository configured. Add remote first."
+            
+            # Get current branch
+            success, current_branch, _ = run_git_command(['git', 'branch', '--show-current'])
+            if success:
+                current_branch = current_branch.strip()
+            else:
+                current_branch = "main"
+            
+            success, stdout, stderr = run_git_command(['git', 'push', '-u', 'origin', current_branch])
+            if success:
+                return f"✅ Successfully pushed to remote repository!\n📤 Branch: {current_branch}"
+            else:
+                return f"❌ Failed to push: {stderr}"
+        
+        elif operation == "pull":
+            print("\n⬇️ Pulling from Remote Repository")
+            print("=" * 40)
+            
+            success, stdout, stderr = run_git_command(['git', 'pull'])
+            if success:
+                return f"✅ Successfully pulled from remote repository!\n{stdout}"
+            else:
+                return f"❌ Failed to pull: {stderr}"
+        
+        elif operation == "clone":
+            print("\n📥 Cloning Repository")
+            print("=" * 30)
+            
+            if not remote_url and interactive:
+                remote_url = input("🌐 Enter repository URL to clone: ").strip()
+            
+            if not remote_url:
+                return "❌ Clone cancelled - no repository URL provided"
+            
+            success, stdout, stderr = run_git_command(['git', 'clone', remote_url])
+            if success:
+                return f"✅ Repository cloned successfully!\n📁 {stdout}"
+            else:
+                return f"❌ Failed to clone repository: {stderr}"
+        
+        elif operation == "branch":
+            print("\n🌿 Branch Operations")
+            print("=" * 30)
+            
+            if not branch_name and interactive:
+                # Show current branches
+                success, branches, _ = run_git_command(['git', 'branch', '-a'])
+                if success:
+                    print("📋 Current branches:")
+                    print(branches)
+                
+                print("\n💡 Options:")
+                print("   • Enter branch name to create/switch")
+                print("   • Type 'list' to list branches")
+                print("   • Type 'cancel' to cancel")
+                branch_name = input("🌿 Branch name: ").strip()
+                
+                if branch_name.lower() == 'cancel':
+                    return "❌ Branch operation cancelled"
+                elif branch_name.lower() == 'list':
+                    return f"📋 Available branches:\n{branches}"
+            
+            if not branch_name:
+                success, branches, _ = run_git_command(['git', 'branch', '-a'])
+                return f"📋 Current branches:\n{branches if success else 'Error listing branches'}"
+            
+            # Check if branch exists
+            success, _, _ = run_git_command(['git', 'show-ref', '--verify', '--quiet', f'refs/heads/{branch_name}'])
+            
+            if success:
+                # Branch exists, switch to it
+                success, stdout, stderr = run_git_command(['git', 'checkout', branch_name])
+                if success:
+                    return f"✅ Switched to existing branch '{branch_name}'"
+                else:
+                    return f"❌ Failed to switch to branch: {stderr}"
+            else:
+                # Create new branch
+                success, stdout, stderr = run_git_command(['git', 'checkout', '-b', branch_name])
+                if success:
+                    return f"✅ Created and switched to new branch '{branch_name}'"
+                else:
+                    return f"❌ Failed to create branch: {stderr}"
+        
+        elif operation == "merge":
+            print("\n🔀 Merging Branches")
+            print("=" * 30)
+            
+            if not target_branch and interactive:
+                success, branches, _ = run_git_command(['git', 'branch'])
+                if success:
+                    print("📋 Available branches:")
+                    print(branches)
+                
+                target_branch = input("🎯 Enter branch to merge: ").strip()
+            
+            if not target_branch:
+                return "❌ Merge cancelled - no target branch specified"
+            
+            success, stdout, stderr = run_git_command(['git', 'merge', target_branch])
+            if success:
+                return f"✅ Successfully merged '{target_branch}' into current branch"
+            else:
+                return f"❌ Failed to merge: {stderr}"
+        
+        elif operation == "log":
+            print("\n📜 Git History")
+            print("=" * 25)
+            
+            success, stdout, stderr = run_git_command(['git', 'log', '--oneline', '-10'])
+            if success:
+                return f"📚 Recent commits (last 10):\n{stdout}"
+            else:
+                return f"❌ Failed to get log: {stderr}"
+        
+        elif operation == "diff":
+            print("\n🔍 Checking Differences")
+            print("=" * 35)
+            
+            success, stdout, stderr = run_git_command(['git', 'diff'])
+            if success:
+                if stdout.strip():
+                    return f"📝 Changes in working directory:\n{stdout}"
+                else:
+                    # Check staged changes
+                    success2, staged_diff, _ = run_git_command(['git', 'diff', '--cached'])
+                    if success2 and staged_diff.strip():
+                        return f"📝 Staged changes:\n{staged_diff}"
+                    else:
+                        return "✅ No differences found"
+            else:
+                return f"❌ Failed to get diff: {stderr}"
+        
+        elif operation == "remote":
+            print("\n🌐 Remote Repository Operations")
+            print("=" * 40)
+            
+            if not remote_url and interactive:
+                success, remotes, _ = run_git_command(['git', 'remote', '-v'])
+                if success and remotes.strip():
+                    print("📋 Current remotes:")
+                    print(remotes)
+                    print("\n💡 Options:")
+                    print("   • Enter new remote URL to add")
+                    print("   • Type 'list' to list current remotes")
+                    print("   • Type 'cancel' to cancel")
+                    remote_url = input("🌐 Remote URL or command: ").strip()
+                    
+                    if remote_url.lower() == 'cancel':
+                        return "❌ Remote operation cancelled"
+                    elif remote_url.lower() == 'list':
+                        return f"📋 Current remotes:\n{remotes}"
+                else:
+                    remote_url = input("🌐 Enter remote repository URL: ").strip()
+            
+            if not remote_url:
+                success, remotes, _ = run_git_command(['git', 'remote', '-v'])
+                return f"📋 Current remotes:\n{remotes if success else 'No remotes configured'}"
+            
+            success, stdout, stderr = run_git_command(['git', 'remote', 'add', 'origin', remote_url])
+            if success:
+                return f"✅ Remote 'origin' added successfully!\n🌐 URL: {remote_url}"
+            else:
+                return f"❌ Failed to add remote: {stderr}"
+        
+        else:
+            return f"❌ Unknown Git operation: {operation}\n💡 Available operations: init, add, commit, push, pull, clone, branch, merge, status, log, diff, remote"
+    
+    except Exception as e:
+        return f"❌ Error during Git operation: {str(e)}"
+
+@tool
+def git_workflow_helper(workflow_type: str = "basic") -> str:
+    """
+    Provide Git workflow guidance and execute common Git workflows.
+    
+    Args:
+        workflow_type: Type of workflow (basic, feature, hotfix, release)
+    
+    Returns:
+        Workflow guidance and execution steps
+    """
+    
+    workflows = {
+        "basic": {
+            "name": "Basic Git Workflow",
+            "steps": [
+                "1. 📝 Make changes to your files",
+                "2. ➕ Add files: git add .",
+                "3. 💾 Commit changes: git commit -m 'Your message'",
+                "4. ⬆️ Push to remote: git push"
+            ],
+            "commands": ["add", "commit", "push"]
+        },
+        "feature": {
+            "name": "Feature Branch Workflow",
+            "steps": [
+                "1. 🌿 Create feature branch: git checkout -b feature/your-feature",
+                "2. 📝 Make changes and commit regularly",
+                "3. ⬆️ Push feature branch: git push -u origin feature/your-feature",
+                "4. 🔀 Create pull request for review",
+                "5. 🔄 Merge to main after approval"
+            ],
+            "commands": ["branch", "add", "commit", "push"]
+        },
+        "hotfix": {
+            "name": "Hotfix Workflow",
+            "steps": [
+                "1. 🌿 Create hotfix branch: git checkout -b hotfix/fix-name",
+                "2. 🔧 Make critical fix",
+                "3. 💾 Commit fix: git commit -m 'Fix: description'",
+                "4. ⬆️ Push and merge immediately",
+                "5. 🏷️ Tag the fix if needed"
+            ],
+            "commands": ["branch", "add", "commit", "push"]
+        },
+        "release": {
+            "name": "Release Workflow",
+            "steps": [
+                "1. 🌿 Create release branch: git checkout -b release/v1.0.0",
+                "2. 🔧 Final testing and bug fixes",
+                "3. 📝 Update version numbers",
+                "4. 🔀 Merge to main and develop",
+                "5. 🏷️ Create release tag"
+            ],
+            "commands": ["branch", "add", "commit", "merge", "push"]
+        }
+    }
+    
+    if workflow_type not in workflows:
+        available = ", ".join(workflows.keys())
+        return f"❌ Unknown workflow type: {workflow_type}\n💡 Available workflows: {available}"
+    
+    workflow = workflows[workflow_type]
+    
+    result = f"\n🔄 {workflow['name']}\n"
+    result += "=" * (len(workflow['name']) + 4) + "\n\n"
+    
+    result += "📋 Workflow Steps:\n"
+    for step in workflow['steps']:
+        result += f"   {step}\n"
+    
+    result += f"\n💡 This workflow uses: {', '.join(workflow['commands'])}\n"
+    result += "\n🤖 Would you like me to help you execute any of these steps?"
+    
+    return result
+
+
+@tool
+def fullstack_web_dev_assistant(query: str) -> str:
+    """
+    Full-stack web development assistant agent
+    Args:
+        query: A request to the full-stack web development assistant
+
+    Returns:
+        Output from interaction
+    """
+    response = agent(query)
+    print("\n\n")
+    return response
+
+
+# Comprehensive Full-Stack Web Development System Prompt
+system_prompt = """# Full-Stack Web Development AI Agent - System Prompt
+
+## Agent Identity & Role
+
+You are an expert Full-Stack Web Development AI Agent, designed specifically for the Strands AI platform. You serve as a comprehensive development assistant with deep expertise across the entire web development stack, from frontend user interfaces to backend infrastructure, databases, and deployment strategies.
+
+## Core Expertise Areas
+
+### Frontend Technologies
+- **JavaScript/TypeScript**: Modern ES6+, TypeScript best practices, async/await patterns
+- **Frameworks & Libraries**: React, Vue.js, Angular, Svelte, Next.js, Nuxt.js
+- **CSS & Styling**: CSS3, Sass/SCSS, Tailwind CSS, styled-components, CSS modules
+- **Build Tools**: Webpack, Vite, Parcel, esbuild, Rollup
+- **Testing**: Jest, Cypress, Testing Library, Playwright, Vitest
+
+### Backend Technologies
+- **Server-side Languages**: Node.js, Python (Django/Flask/FastAPI), PHP, Java (Spring), C# (.NET)
+- **API Development**: RESTful APIs, GraphQL, WebSockets, gRPC
+- **Authentication & Security**: JWT, OAuth, session management, CORS, security best practices
+- **Microservices**: Docker, Kubernetes, service mesh architectures
+
+### Database Technologies
+- **Relational**: PostgreSQL, MySQL, SQLite, SQL Server
+- **NoSQL**: MongoDB, Redis, DynamoDB, Cassandra
+- **ORMs & Query Builders**: Prisma, TypeORM, Sequelize, Mongoose, SQLAlchemy
+- **Database Design**: Schema design, indexing, query optimization, migrations
+
+### DevOps & Infrastructure
+- **Cloud Platforms**: AWS, Google Cloud, Azure, Vercel, Netlify
+- **CI/CD**: GitHub Actions, GitLab CI, Jenkins, Azure DevOps
+- **Containerization**: Docker, Docker Compose, Kubernetes
+- **Monitoring**: Application performance monitoring, logging, error tracking
+
+### Development Tools & Practices
+- **Version Control**: Git workflows, branching strategies, pull request best practices, interactive Git operations
+- **Code Quality**: ESLint, Prettier, SonarQube, code reviews
+- **Project Management**: Agile methodologies, sprint planning, technical documentation
+
+## Capabilities & Service Model
+
+### 1. Requirement Analysis & Planning
+- **Project Assessment**: Analyze project requirements and technical constraints
+- **Technology Stack Recommendations**: Suggest optimal tech stack based on project needs
+- **Architecture Design**: Create system architecture diagrams and technical specifications
+- **Timeline Estimation**: Provide realistic development timelines and milestone planning
+
+### 2. Step-by-Step Development Guidance
+- **Detailed Instructions**: Break down complex tasks into manageable, sequential steps
+- **Code Examples**: Provide complete, working code samples with explanations
+- **Best Practices**: Incorporate industry standards and proven patterns
+- **Progressive Complexity**: Start with basics and gradually introduce advanced concepts
+
+### 3. Code Execution & Validation
+- **Live Code Testing**: Execute code snippets to verify functionality
+- **Debugging Assistance**: Identify and resolve issues in existing code
+- **Performance Optimization**: Analyze and improve code performance
+- **Security Auditing**: Review code for security vulnerabilities
+
+### 4. Technology Consultation
+- **Technology Comparisons**: Explain pros/cons of different approaches
+- **Migration Strategies**: Guide transitions between technologies or versions
+- **Performance Analysis**: Evaluate system bottlenecks and optimization opportunities
+- **Scalability Planning**: Design systems for growth and high availability
+
+## Workflow Process
+
+### Phase 1: Discovery & Requirements Gathering
+1. **Initial Assessment**
+   - Understand project goals and business requirements
+   - Identify target audience and user experience needs
+   - Assess technical constraints and preferences
+   - Determine timeline and resource availability
+
+2. **Technical Specifications**
+   - Define functional and non-functional requirements
+   - Establish performance benchmarks
+   - Identify integration needs and third-party services
+   - Document security and compliance requirements
+
+### Phase 2: Solution Design & Planning
+1. **Architecture Design**
+   - Create high-level system architecture
+   - Design database schema and data flow
+   - Plan API endpoints and data structures
+   - Define deployment and infrastructure strategy
+
+2. **Technology Stack Selection**
+   - Recommend optimal frontend framework
+   - Choose appropriate backend technology
+   - Select database and caching solutions
+   - Plan development and deployment tools
+
+### Phase 3: Implementation Guidance
+1. **Step-by-Step Development**
+   - Provide detailed implementation instructions
+   - Offer code templates and boilerplate
+   - Guide through testing and validation
+   - Assist with debugging and troubleshooting
+
+2. **Quality Assurance**
+   - Review code for best practices compliance
+   - Ensure security standards are met
+   - Validate performance requirements
+   - Conduct accessibility and usability checks
+
+### Phase 4: Deployment & Optimization
+1. **Deployment Strategy**
+   - Guide through production deployment
+   - Set up monitoring and logging
+   - Configure CI/CD pipelines
+   - Implement backup and recovery procedures
+
+2. **Post-Launch Support**
+   - Monitor system performance
+   - Provide optimization recommendations
+   - Assist with scaling and maintenance
+   - Guide future feature development
+
+## Interaction Guidelines
+
+### Communication Style
+- **Clear & Concise**: Use straightforward language while maintaining technical accuracy
+- **Structured Responses**: Organize information with headers, lists, and code blocks
+- **Educational Approach**: Explain the "why" behind recommendations, not just the "how"
+- **Professional Tone**: Maintain expertise while being approachable and helpful
+
+### Code Standards
+- **Complete Examples**: Provide fully functional code snippets
+- **Proper Documentation**: Include comments and explanations
+- **Error Handling**: Demonstrate robust error handling patterns
+- **Security Considerations**: Always include security best practices
+
+### Problem-Solving Approach
+1. **Listen Actively**: Understand the complete context before responding
+2. **Ask Clarifying Questions**: Ensure requirements are fully understood
+3. **Provide Options**: Offer multiple solutions when appropriate
+4. **Explain Trade-offs**: Discuss pros and cons of different approaches
+5. **Follow Up**: Check if additional clarification or assistance is needed
+
+## Quality Standards
+
+### Code Quality Requirements
+- **Readability**: Code should be self-documenting and well-organized
+- **Maintainability**: Follow SOLID principles and design patterns
+- **Testability**: Include unit tests and integration test examples
+- **Performance**: Optimize for speed and resource efficiency
+- **Security**: Implement authentication, authorization, and data protection
+
+### Documentation Standards
+- **Technical Specifications**: Provide comprehensive API documentation
+- **Setup Instructions**: Include detailed installation and configuration steps
+- **Usage Examples**: Demonstrate common use cases and patterns
+- **Troubleshooting Guides**: Anticipate common issues and provide solutions
+
+## Platform Integration - Strands AI
+
+### Strands AI Specific Features
+- **Tool Integration**: Leverage available development tools and utilities
+- **Collaborative Workflows**: Support team-based development processes
+- **Knowledge Sharing**: Contribute to organizational knowledge base
+- **Automation**: Utilize platform automation capabilities for repetitive tasks
+
+### Best Practices for Strands AI
+- **Efficient Resource Usage**: Optimize for platform performance
+- **Consistent Formatting**: Follow platform conventions for output formatting
+- **Error Handling**: Provide clear error messages and recovery suggestions
+- **Progress Tracking**: Keep stakeholders informed of development progress
+
+## Response Framework
+
+### For Development Tasks
+1. **Requirement Confirmation**: Verify understanding of the request
+2. **Solution Overview**: Provide high-level approach explanation
+3. **Step-by-Step Implementation**: Break down into actionable steps
+4. **Code Examples**: Provide working code with explanations
+5. **Testing & Validation**: Include testing strategies and validation steps
+6. **Next Steps**: Suggest follow-up actions or improvements
+
+### For Consultation Questions
+1. **Context Gathering**: Ask relevant clarifying questions
+2. **Option Analysis**: Present multiple viable approaches
+3. **Recommendation**: Provide clear recommendation with reasoning
+4. **Implementation Guidance**: Offer practical next steps
+5. **Resource References**: Suggest additional learning materials
+
+### For Code Review & Debugging
+1. **Issue Identification**: Pinpoint specific problems or improvements
+2. **Root Cause Analysis**: Explain underlying causes
+3. **Solution Implementation**: Provide corrected code with explanations
+4. **Prevention Strategies**: Suggest practices to avoid similar issues
+5. **Performance Considerations**: Highlight optimization opportunities
+
+## Success Metrics
+
+### Delivery Excellence
+- **Accuracy**: Solutions work as intended without modification
+- **Completeness**: All requirements are addressed comprehensively
+- **Efficiency**: Optimal performance and resource utilization
+- **Maintainability**: Code is easy to understand and modify
+
+### User Experience
+- **Clarity**: Instructions are easy to follow and understand
+- **Responsiveness**: Quick turnaround on requests and questions
+- **Adaptability**: Flexible approach based on user skill level and needs
+- **Support**: Ongoing assistance and troubleshooting help
+
+---
+
+Answer the user's request using the relevant tool(s), if they are available. Check that all the required parameters for each tool call are provided or can reasonably be inferred from context. IF there are no relevant tools or there are missing values for required parameters, ask the user to supply these values; otherwise proceed with the tool calls. If the user provides a specific value for a parameter (for example provided in quotes), make sure to use that value EXACTLY. DO NOT make up values for or ask about optional parameters. Carefully analyze descriptive terms in the request as they may indicate required parameter values that should be included even if not explicitly quoted.
+"""
+
+# Model configuration - using Claude Sonnet for advanced reasoning
+model = BedrockModel(
+    model_id="us.anthropic.claude-sonnet-4-20250514-v1:0",
+)
+
+# Agent initialization with core toolset including Git operations
+agent = Agent(
+    model=model,
+    system_prompt=system_prompt,
+    tools=[python_repl, editor, shell, journal, git_operations, git_workflow_helper],
+    trace_attributes={"session.id": SESSION_ID},
+)
+
+
+if __name__ == "__main__":
+    print("=======================================================================")
+    print("🚀  WELCOME TO YOUR FULL-STACK WEB DEVELOPMENT ASSISTANT  🚀")
+    print("=======================================================================")
+    print("💡 I'm your expert full-stack developer ready to help with:")
+    print()
+    print("🎨 FRONTEND DEVELOPMENT:")
+    print("   • React, Vue.js, Angular, Svelte applications")
+    print("   • TypeScript/JavaScript ES6+ development")
+    print("   • CSS frameworks (Tailwind, Bootstrap, styled-components)")
+    print("   • Build tools (Webpack, Vite, Parcel)")
+    print("   • Frontend testing (Jest, Cypress, Playwright)")
+    print()
+    print("⚡ BACKEND DEVELOPMENT:")
+    print("   • Node.js, Python (Django/Flask/FastAPI), Java Spring")
+    print("   • RESTful APIs, GraphQL, WebSocket implementations")
+    print("   • Authentication & security (JWT, OAuth, CORS)")
+    print("   • Microservices and containerization")
+    print()
+    print("🗄️  DATABASE & STORAGE:")
+    print("   • SQL databases (PostgreSQL, MySQL, SQLite)")
+    print("   • NoSQL solutions (MongoDB, Redis, DynamoDB)")
+    print("   • ORM integration (Prisma, TypeORM, SQLAlchemy)")
+    print("   • Database optimization and migrations")
+    print()
+    print("☁️  DEVOPS & DEPLOYMENT:")
+    print("   • Cloud platforms (AWS, Google Cloud, Azure)")
+    print("   • CI/CD pipelines (GitHub Actions, GitLab CI)")
+    print("   • Docker containerization and Kubernetes")
+    print("   • Performance monitoring and logging")
+    print()
+    print("🔧 GIT VERSION CONTROL:")
+    print("   • Repository initialization and configuration")
+    print("   • Interactive Git operations (add, commit, push, pull)")
+    print("   • Branch management and merging")
+    print("   • Remote repository setup and workflows")
+    print("   • Feature branch, hotfix, and release workflows")
+    print()
+    print("💻 Available Development Tools:")
+    print("   • Python REPL - Execute and test Python code")
+    print("   • Advanced Code Editor - Create, edit, and manage files")
+    print("   • Shell Access - System commands and operations")
+    print("   • Development Journal - Track progress and notes")
+    print("   • Git Operations - Complete version control integration")
+    print("   • Git Workflow Helper - Guided workflow assistance")
+    print()
+    print("✨ What I Can Help You With:")
+    print("   🏗️  'Design a full-stack application architecture'")
+    print("   🔨 'Create a React component with TypeScript'")
+    print("   🌐 'Build a RESTful API with authentication'")
+    print("   🗃️  'Design a database schema for...'")
+    print("   🚀 'Set up CI/CD pipeline for deployment'")
+    print("   🐛 'Debug and optimize existing code'")
+    print("   📋 'Review code for best practices'")
+    print("   🔍 'Compare technology stack options'")
+    print("   🌿 'Initialize Git repository and set up workflows'")
+    print("   📤 'Push my project to GitHub'")
+    print("   🔀 'Help me with Git branching and merging'")
+    print()
+    print("💡 Pro Tips:")
+    print("   • Be specific about your tech stack preferences")
+    print("   • I'll provide working code examples and explanations")
+    print("   • Ask for architecture guidance for complex projects")
+    print("   • Request code reviews for quality assurance")
+    print("   • I can help with both new projects and existing codebases")
+    print("   • Git operations are interactive - I'll ask for missing info")
+    print()
+    print("🌿 Git Examples:")
+    print("   • 'Initialize a Git repository for my project'")
+    print("   • 'Add all files and commit with message'")
+    print("   • 'Push my storefront project to GitHub'")
+    print("   • 'Create a feature branch for authentication'")
+    print("   • 'Show me the basic Git workflow'")
+    print()
+    print("🚪 Type 'exit' to quit anytime")
+    print("=======================================================================")
+    print()
+
+    # Initialize the full-stack web development assistant
+    try:
+        print("✅ Full-Stack Web Development Assistant initialized successfully!")
+        print("🎯 Ready to help with frontend, backend, databases, deployment, and Git!")
+        print("🌿 Git operations ready - I'll interactively ask for any missing information!")
+        print()
+    except Exception as e:
+        print(f"❌ Error initializing Full-Stack Web Dev Assistant: {str(e)}")
+        print("🔧 Please check your configuration and try again.")
+
+    # Run the agent in a loop for interactive conversation
+    while True:
+        try:
+            user_input = input("👨‍💻 You: ").strip()
+
+            if not user_input:
+                print("💭 Please describe your development task, ask a question, or type 'exit' to quit")
+                print("💡 Examples: 'Create a React app', 'Design an API', 'Help with Git', 'Push to GitHub'")
+                continue
+
+            if user_input.lower() in ["exit", "quit", "bye", "goodbye"]:
+                print()
+                print("=======================================================")
+                print("👋 Thanks for developing with me!")
+                print("🎉 Happy coding and building amazing applications!")
+                print("🚀 Keep pushing the boundaries of web development!")
+                print("🌿 Don't forget to commit your changes to Git!")
+                print("💻 See you next time for more full-stack adventures!")
+                print("=======================================================")
+                break
+
+            print("🤖 FullStack DevBot: ", end="")
+            response = fullstack_web_dev_assistant(user_input)
+
+        except KeyboardInterrupt:
+            print("\n")
+            print("=======================================================")
+            print("👋 Full-Stack Web Dev Assistant interrupted!")
+            print("💾 Don't forget to save your work and commit changes!")
+            print("🌿 Remember to push your code to Git repository!")
+            print("🎉 Keep building amazing things!")
+            print("=======================================================")
+            break
+        except Exception as e:
+            print(f"❌ An error occurred: {str(e)}")
+            print("🔧 Please try again or type 'exit' to quit")
+            print("💡 Tip: Try being more specific about your development needs")
+            print()
