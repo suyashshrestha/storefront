@@ -5,7 +5,7 @@ import {
   MagnifyingGlassIcon,
   XMarkIcon,
   ClockIcon,
-  TrendingUpIcon,
+  FireIcon,
 } from '@heroicons/react/24/outline';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useUIStore } from '@/store/useUIStore';
@@ -145,7 +145,7 @@ const SearchModal: React.FC = () => {
                 {/* Popular Searches */}
                 <div>
                   <h3 className="text-sm font-medium text-gray-900 mb-3 flex items-center">
-                    <TrendingUpIcon className="h-4 w-4 mr-2" />
+                    <FireIcon className="h-4 w-4 mr-2" />
                     Popular Searches
                   </h3>
                   <div className="flex flex-wrap gap-2">
