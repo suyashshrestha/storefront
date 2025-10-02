@@ -37,8 +37,8 @@ export const useAuthStore = create<AuthStore>()(
             firstName: 'John',
             lastName: 'Doe',
             avatar: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?ixlib=rb-1.2.1&auto=format&fit=facearea&facepad=2&w=256&h=256&q=80',
-            createdAt: new Date(),
-            updatedAt: new Date(),
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
           };
           
           const mockToken = 'mock-jwt-token';
@@ -70,8 +70,8 @@ export const useAuthStore = create<AuthStore>()(
             email: userData.email,
             firstName: userData.firstName,
             lastName: userData.lastName,
-            createdAt: new Date(),
-            updatedAt: new Date(),
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
           };
           
           const mockToken = 'mock-jwt-token';
@@ -106,7 +106,7 @@ export const useAuthStore = create<AuthStore>()(
         const { user } = get();
         if (user) {
           set({
-            user: { ...user, ...userData, updatedAt: new Date() },
+            user: { ...user, ...userData, updatedAt: new Date().toISOString() },
           });
         }
       },

@@ -427,8 +427,8 @@ export const getServerSideProps: GetServerSideProps = async ({ query }) => {
     tags: ['tag1', 'tag2'],
     isOnSale: Math.random() > 0.7,
     isFeatured: Math.random() > 0.8,
-    createdAt: new Date(),
-    updatedAt: new Date(),
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
   }));
 
   const categories: Category[] = [

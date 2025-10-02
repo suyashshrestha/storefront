@@ -4,8 +4,8 @@ export interface User {
   firstName: string;
   lastName: string;
   avatar?: string;
-  createdAt: Date;
-  updatedAt: Date;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface Product {
@@ -24,8 +24,8 @@ export interface Product {
   specifications?: Record<string, string>;
   isOnSale?: boolean;
   isFeatured?: boolean;
-  createdAt: Date;
-  updatedAt: Date;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface Category {
@@ -94,8 +94,8 @@ export interface Order {
   billingAddress: Address;
   paymentMethod: PaymentMethod;
   trackingNumber?: string;
-  createdAt: Date;
-  updatedAt: Date;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface PaymentMethod {

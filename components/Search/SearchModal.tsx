@@ -272,8 +272,8 @@ const mockSearchResults: Product[] = [
     tags: ['wireless', 'premium', 'noise-cancelling'],
     isOnSale: true,
     isFeatured: true,
-    createdAt: new Date(),
-    updatedAt: new Date(),
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
   },
   {
     id: '2',
@@ -288,8 +288,8 @@ const mockSearchResults: Product[] = [
     reviewCount: 95,
     tags: ['running', 'comfortable', 'stylish'],
     isFeatured: true,
-    createdAt: new Date(),
-    updatedAt: new Date(),
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
   },
   // Add more mock products as needed
 ];

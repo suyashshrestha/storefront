@@ -269,8 +269,8 @@ export const getStaticProps: GetStaticProps = async () => {
       tags: ['wireless', 'premium', 'noise-cancelling'],
       isOnSale: true,
       isFeatured: true,
-      createdAt: new Date(),
-      updatedAt: new Date(),
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
     },
     {
       id: '2',
@@ -285,8 +285,8 @@ export const getStaticProps: GetStaticProps = async () => {
       reviewCount: 95,
       tags: ['running', 'comfortable', 'stylish'],
       isFeatured: true,
-      createdAt: new Date(),
-      updatedAt: new Date(),
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
     },
     // Add more mock products...
   ];

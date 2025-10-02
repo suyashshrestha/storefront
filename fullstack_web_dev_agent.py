@@ -722,8 +722,8 @@ Answer the user's request using the relevant tool(s), if they are available. Che
 
 # Model configuration - using Claude Sonnet for advanced reasoning
 model = BedrockModel(
-    #model_id="us.anthropic.claude-sonnet-4-20250514-v1:0",
-    model_id="us.amazon.nova-pro-v1:0",
+    model_id="us.anthropic.claude-sonnet-4-20250514-v1:0",
+    #model_id="us.amazon.nova-pro-v1:0",
 )
 
 # Agent initialization with core toolset including Git operations
