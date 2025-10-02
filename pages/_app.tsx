@@ -54,5 +54,5 @@ function MyApp({ Component, pageProps }: AppProps) {
     </QueryClientProvider>
   );
 }
-
+//adding to force commit
 export default MyApp;
